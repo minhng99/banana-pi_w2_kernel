@@ -312,3 +312,11 @@ config PM_GENERIC_DOMAINS_OF
 
 config CPU_PM
 	bool
+
+config GLINUX_CURRENT
+	bool "User space suspend interface"
+	depends on SUSPEND
+	default n
+	---help---
+	  RTK Generic linux um interface for stop playback related component
+	  before SUSPEND.

@@ -74,6 +74,18 @@
 #define MTP_RESPONSE_DEVICE_BUSY    0x2019
 #define DRIVER_NAME "mtp"
 
+#ifdef CONFIG_USB_PATCH_ON_RTK
+#define IOCNR_MTP_SEND_FILE 	0
+#define IOCNR_MTP_RECEIVE_FILE	1
+#define IOCNR_MTP_SEND_EVENT	3
+#define IOCNR_MTP_SEND_FILE_WITH_HEADER		4
+
+struct mtp_event_32 {
+	int32_t length;
+	int32_t data;
+};
+#endif
+
 static const char mtp_shortname[] = DRIVER_NAME "_usb";
 
 struct mtp_dev {
@@ -576,6 +588,16 @@ requeue_req:
 	req = dev->rx_req[0];
 	req->length = len;
 	dev->rx_done = 0;
+#ifdef CONFIG_USB_PATCH_ON_RTK
+	// add workaround to fix Rx for bMaxPacketSize0
+	if (count == 512) {
+		struct usb_gadget *gadget = cdev->gadget;
+		if (gadget->speed == USB_SPEED_SUPER) {
+			req->length = 1024;
+			DBG(cdev, "mtp_read(%zu) for super speed fixed length to 1024\n", count);
+		}
+	}
+#endif
 	ret = usb_ep_queue(dev->ep_out, req, GFP_KERNEL);
 	if (ret < 0) {
 		r = -EIO;
@@ -612,7 +634,13 @@ done:
 		dev->state = STATE_READY;
 	spin_unlock_irq(&dev->lock);
 
+#ifdef CONFIG_USB_PATCH_ON_RTK
+	/* fixed when cdev->gadget is null */
+	pr_debug("mtp_read returning %zd\n", r);
+#else
 	DBG(cdev, "mtp_read returning %zd\n", r);
+#endif
+
 	return r;
 }
 
@@ -834,6 +862,12 @@ static void receive_file_work(struct work_struct *data)
 	filp = dev->xfer_file;
 	offset = dev->xfer_file_offset;
 	count = dev->xfer_file_length;
+#ifdef CONFIG_USB_PATCH_ON_RTK
+	/* Fixed last transfer can't complete */
+	if (count != 0xFFFFFFFF)
+		count = count + offset;
+	DBG(cdev, "receive_file_work(%lld %lld)\n", offset, count);
+#endif
 
 	DBG(cdev, "receive_file_work(%lld)\n", count);
 
@@ -947,7 +981,117 @@ static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 
 	if (mtp_lock(&dev->ioctl_excl))
 		return -EBUSY;
+#ifdef CONFIG_USB_PATCH_ON_RTK
+	DBG(dev->cdev, "%s\n", __func__);
 
+	DBG(dev->cdev,
+		"mtp_ioctl: cmd=0x%x (%c nr=%d len=%d dir=%d)\n", code,
+		_IOC_TYPE(code), _IOC_NR(code), _IOC_SIZE(code), _IOC_DIR(code));
+
+	if ((_IOC_TYPE(code) != 'M') && (_IOC_DIR(code) != _IOC_WRITE)) {
+		ERROR(dev->cdev,
+			"mtp_ioctl: cmd=0x%x (%c nr=%d len=%d dir=%d)\n", code,
+			_IOC_TYPE(code), _IOC_NR(code), _IOC_SIZE(code), _IOC_DIR(code));
+		goto out;
+	}
+
+	switch (_IOC_NR(code)) {
+	case IOCNR_MTP_SEND_FILE:
+	case IOCNR_MTP_RECEIVE_FILE:
+	case IOCNR_MTP_SEND_FILE_WITH_HEADER:
+	{
+		struct mtp_file_range	mfr;
+		struct work_struct *work;
+
+		spin_lock_irq(&dev->lock);
+		if (dev->state == STATE_CANCELED) {
+			/* report cancelation to userspace */
+			dev->state = STATE_READY;
+			spin_unlock_irq(&dev->lock);
+			ret = -ECANCELED;
+			goto out;
+		}
+		if (dev->state == STATE_OFFLINE) {
+			spin_unlock_irq(&dev->lock);
+			ret = -ENODEV;
+			goto out;
+		}
+		dev->state = STATE_BUSY;
+		spin_unlock_irq(&dev->lock);
+
+		if (copy_from_user(&mfr, (void __user *)value, sizeof(mfr))) {
+			ret = -EFAULT;
+			goto fail;
+		}
+		/* hold a reference to the file while we are working with it */
+		filp = fget(mfr.fd);
+		if (!filp) {
+			ret = -EBADF;
+			goto fail;
+		}
+
+		/* write the parameters */
+		dev->xfer_file = filp;
+		dev->xfer_file_offset = mfr.offset;
+		dev->xfer_file_length = mfr.length;
+		smp_wmb();
+
+		if (_IOC_NR(code) == IOCNR_MTP_SEND_FILE_WITH_HEADER) {
+			work = &dev->send_file_work;
+			dev->xfer_send_header = 1;
+			dev->xfer_command = mfr.command;
+			dev->xfer_transaction_id = mfr.transaction_id;
+		} else if (_IOC_NR(code) == IOCNR_MTP_SEND_FILE) {
+			work = &dev->send_file_work;
+			dev->xfer_send_header = 0;
+		} else {
+			work = &dev->receive_file_work;
+		}
+
+		/* We do the file transfer on a work queue so it will run
+		 * in kernel context, which is necessary for vfs_read and
+		 * vfs_write to use our buffers in the kernel address space.
+		 */
+		queue_work(dev->wq, work);
+		/* wait for operation to complete */
+		flush_workqueue(dev->wq);
+		fput(filp);
+
+		/* read the result */
+		smp_rmb();
+		ret = dev->xfer_result;
+		break;
+	}
+	case IOCNR_MTP_SEND_EVENT:
+	{
+		struct mtp_event_32 event32;
+		struct mtp_event	event;
+		/* return here so we don't change dev->state below,
+		 * which would interfere with bulk transfer state.
+		 */
+		if (_IOC_SIZE(code) == sizeof(struct mtp_event)) {
+			if (copy_from_user(&event, (void __user *)value, sizeof(struct mtp_event)))
+				ret = -EFAULT;
+			else
+				ret = mtp_send_event(dev, &event);
+		} else if (_IOC_SIZE(code) == sizeof(struct mtp_event_32)) {
+			if (copy_from_user(&event32, (void __user *)value, _IOC_SIZE(code)))
+				ret = -EFAULT;
+			else {
+				event.length = event32.length;
+#if defined(CONFIG_ARCH_MULTI_V7)
+				event.data = event32.data;
+#else
+				event.data = compat_ptr(event32.data);
+#endif /* CONFIG_ARCH_MULTI_V7 */
+				DBG(dev->cdev, "%s: data %x data32 %x\n",__func__,  event.data, event32.data);
+				ret = mtp_send_event(dev, &event);
+			}
+		}
+		goto out;
+	}
+	}
+#else
 	switch (code) {
 	case MTP_SEND_FILE:
 	case MTP_RECEIVE_FILE:
@@ -1028,6 +1172,7 @@ static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 		goto out;
 	}
 	}
+#endif
 
 fail:
 	spin_lock_irq(&dev->lock);
@@ -1041,6 +1186,21 @@ out:
 	DBG(dev->cdev, "ioctl returning %d\n", ret);
 	return ret;
 }
+
+#ifdef CONFIG_COMPAT
+static long mtp_compat_ioctl(struct file *fp, unsigned code, unsigned long value)
+{
+	struct mtp_dev *dev = fp->private_data;
+	int ret;
+	DBG(dev->cdev, "%s\n", __func__);
+#if defined(CONFIG_ARCH_MULTI_V7)
+	ret = mtp_ioctl(fp, code, value);
+#else
+	ret = mtp_ioctl(fp, code, compat_ptr(value));
+#endif /* CONFIG_ARCH_MULTI_V7 */
+	return ret;
+}
+#endif
 
 static int mtp_open(struct inode *ip, struct file *fp)
 {
@@ -1070,6 +1230,9 @@ static const struct file_operations mtp_fops = {
 	.read = mtp_read,
 	.write = mtp_write,
 	.unlocked_ioctl = mtp_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl =   mtp_compat_ioctl,
+#endif
 	.open = mtp_open,
 	.release = mtp_release,
 };

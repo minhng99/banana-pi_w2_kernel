@@ -1,0 +1,13 @@
+config RTK_THERMAL
+	bool "Realtek thermal management"
+	depends on OF && THERMAL_OF
+	help
+	  Enable thermal management with a generic thermal
+	  sensor driver on Realtek SoCs.
+
+	  If you want this support, you should say Y here.
+
+config RTK_THERMAL_RTD129X
+	bool "RTD-129x thermal sensor support"
+	default y if ARCH_RTD129x
+	select RTK_THERMAL

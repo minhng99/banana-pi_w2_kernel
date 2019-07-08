@@ -27,6 +27,20 @@
 #include "sd.h"
 #include "sd_ops.h"
 
+#ifdef CONFIG_MMC_RTK_SDMMC
+int mmc_runtime_resume_flag=0;
+int get_mmc_runtime_resume_flag(void)
+{
+        return mmc_runtime_resume_flag;
+}
+EXPORT_SYMBOL(get_mmc_runtime_resume_flag);
+void set_mmc_runtime_resume_flag(int flag)
+{
+        mmc_runtime_resume_flag = flag;
+}
+EXPORT_SYMBOL(set_mmc_runtime_resume_flag);
+#endif
+
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -1256,10 +1270,14 @@ static int mmc_sd_runtime_resume(struct mmc_host *host)
 	int err;
 
 	err = _mmc_sd_resume(host);
-	if (err && err != -ENOMEDIUM)
+	if (err && err != -ENOMEDIUM) {
+#ifdef CONFIG_MMC_RTK_SDMMC
+		mmc_runtime_resume_flag=1;
+#endif
+
 		pr_err("%s: error %d doing runtime resume\n",
 			mmc_hostname(host), err);
-
+	}
 	return 0;
 }
 

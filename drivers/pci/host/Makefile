@@ -33,3 +33,5 @@ obj-$(CONFIG_PCIE_ARMADA_8K) += pcie-armada8k.o
 obj-$(CONFIG_PCIE_ARTPEC6) += pcie-artpec6.o
 obj-$(CONFIG_PCIE_ROCKCHIP) += pcie-rockchip.o
 obj-$(CONFIG_VMD) += vmd.o
+obj-$(CONFIG_PCIE_RTD129x_SLOT2) += pcie-rtd129x-slot2.o
+obj-$(CONFIG_PCIE_RTD129x_SLOT1) += pcie-rtd129x-slot1.o

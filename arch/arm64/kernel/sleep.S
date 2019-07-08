@@ -3,6 +3,11 @@
 #include <asm/asm-offsets.h>
 #include <asm/assembler.h>
 
+#ifdef CONFIG_RTK_PLATFORM
+#define GICD_BASE 0xFF011000
+#define GICC_BASE 0xFF012000
+#endif /* CONFIG_RTK_PLATFORM */
+
 	.text
 /*
  * Implementation of MPIDR_EL1 hash algorithm through shifting
@@ -97,6 +102,11 @@ ENDPROC(__cpu_suspend_enter)
 
 	.pushsection ".idmap.text", "awx"
 ENTRY(cpu_resume)
+#ifdef CONFIG_ARCH_RTD129x
+	bl	dcache_disable
+	bl	gic_pre_init
+	bl	armv8_switch_to_el2
+#endif /* CONFIG_ARCH_RTD129x */
 	bl	el2_setup		// if in EL2 drop to EL1 cleanly
 	bl	__cpu_setup
 	/* enable the MMU early - so we can access sleep_save_stash by va */

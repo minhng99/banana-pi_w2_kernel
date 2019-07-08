@@ -1,0 +1,20 @@
+#Copyright (C) 2007-2013 Realtek Semiconductor Corporation.
+# drivers/Kconfig
+
+menu "CEC Support"
+
+config CEC
+	bool "CEC Support"
+
+menu "CEC Adapters"
+	depends on CEC
+
+config RTK_CEC
+	tristate "CEC Controller for Realtek platform"
+	depends on CEC
+	default n
+	help
+	  Say Y, if you want to enable CEC feature on Realtek platform.
+
+endmenu
+endmenu
