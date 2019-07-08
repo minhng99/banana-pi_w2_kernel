@@ -1,0 +1,16 @@
+config COMMON_CLK_REALTEK
+	bool "Clock driver for realtek"
+	select RTK_MMIO 
+	select RESET_CONTROLLER
+
+config COMMON_CLK_REALTEK_DEBUG
+	bool "Clock debug"
+	select RTK_REGISTER_TRACKER
+	default y
+	help
+	  Add a simple register tracker to clock
+
+config COMMON_CLK_RTD129X
+	bool "Clock driver for RTD129x"
+	select COMMON_CLK_REALTEK
+	default y if ARCH_RTD129x
