@@ -627,14 +627,14 @@ void usb_remove_function(struct usb_configuration *c, struct usb_function *f);
 
 /* messaging utils */
 #define DBG(d, fmt, args...) \
-	dev_dbg(&(d)->gadget->dev , fmt , ## args)
+	dev_dbg(((d)&&(d)->gadget)?&(d)->gadget->dev:NULL , fmt , ## args)
 #define VDBG(d, fmt, args...) \
-	dev_vdbg(&(d)->gadget->dev , fmt , ## args)
+	dev_vdbg(((d)&&(d)->gadget)?&(d)->gadget->dev:NULL , fmt , ## args)
 #define ERROR(d, fmt, args...) \
-	dev_err(&(d)->gadget->dev , fmt , ## args)
+	dev_err(((d)&&(d)->gadget)?&(d)->gadget->dev:NULL , fmt , ## args)
 #define WARNING(d, fmt, args...) \
-	dev_warn(&(d)->gadget->dev , fmt , ## args)
+	dev_warn(((d)&&(d)->gadget)?&(d)->gadget->dev:NULL , fmt , ## args)
 #define INFO(d, fmt, args...) \
-	dev_info(&(d)->gadget->dev , fmt , ## args)
+	dev_info(((d)&&(d)->gadget)?&(d)->gadget->dev:NULL , fmt , ## args)
 
 #endif	/* __LINUX_USB_COMPOSITE_H */

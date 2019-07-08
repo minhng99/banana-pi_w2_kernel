@@ -28,11 +28,43 @@
 #include <linux/uaccess.h>
 #include "optee_private.h"
 #include "optee_smc.h"
+#include <linux/proc_fs.h>
 #include "shm_pool.h"
 
 #define DRIVER_NAME "optee"
 
 #define OPTEE_SHM_NUM_PRIV_PAGES	1
+
+#define BL31_TSP_TEST
+
+#ifdef BL31_TSP_TEST
+ssize_t tsp_trigger(struct file *filp, const char __user *buff, unsigned long len, void *data);
+static struct proc_dir_entry *proc_file = NULL;
+static struct file_operations proc_fops = 
+{
+.owner = THIS_MODULE,
+.write = tsp_trigger
+};
+
+ssize_t tsp_trigger(struct file *filp, const char __user *buff, unsigned long len, void *data) 
+{ 	
+	printk(KERN_ERR "tsp_trigger !!! \n");
+	unsigned int arg1 = 3, arg2 = 5;
+	printk(KERN_ERR "TSP_ADD: x1 = 3, x2 = 5 \n");
+	asm volatile("mov x1, %0" : : "r"(arg1): "cc");
+	asm volatile("mov x2, %0" : : "r"(arg2): "cc");
+	asm volatile("ldr x0, =0xf2002000" : : : "cc");
+	asm volatile("isb" : : : "cc");
+	asm volatile("smc #0" : : : "cc");
+	asm volatile("isb" : : : "cc");
+	asm volatile("mov %0, x1" : "=r"(arg1): : "cc");
+	asm volatile("mov %0, x2" : "=r"(arg2): : "cc");
+	asm volatile("isb" : : : "cc");
+	printk(KERN_ERR "Result: x1 = %u, x2 = %u \n",arg1, arg2);	
+	return len; 
+}
+
+#endif
 
 /**
  * optee_from_msg_param() - convert from OPTEE_MSG parameters to
@@ -537,6 +569,17 @@ static struct optee *optee_probe(struct device_node *np)
 	struct tee_device *teedev;
 	u32 sec_caps;
 	int rc;
+	
+#ifdef BL31_TSP_TEST
+	proc_file = proc_create("tsp_trigger", 0x0644, NULL, &proc_fops);
+	
+	if(!proc_file){
+		printk(KERN_ERR "/proc/tsp_trigger can't be created! \n");
+	}
+	else{
+		printk(KERN_ERR "/proc/tsp_trigger is created. \n");
+	}	
+#endif
 
 	invoke_fn = get_invoke_func(np);
 	if (IS_ERR(invoke_fn))

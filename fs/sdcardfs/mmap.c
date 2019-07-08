@@ -26,24 +26,40 @@ static int sdcardfs_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	struct file *file;
 	const struct vm_operations_struct *lower_vm_ops;
 
+#ifdef CONFIG_RTK_PLATFORM
+	file = (struct file *)vma->vm_rtk_private_data;
+#else
 	file = (struct file *)vma->vm_private_data;
+#endif /* CONFIG_RTK_PLATFORM */
+
 	lower_vm_ops = SDCARDFS_F(file)->lower_vm_ops;
+
 	BUG_ON(!lower_vm_ops);
 
 	err = lower_vm_ops->fault(vma, vmf);
+
 	return err;
 }
 
 static void sdcardfs_vm_open(struct vm_area_struct *vma)
 {
+#ifdef CONFIG_RTK_PLATFORM
+	struct file *file = (struct file *)vma->vm_rtk_private_data;
+#else
 	struct file *file = (struct file *)vma->vm_private_data;
+#endif /* CONFIG_RTK_PLATFORM */
 
 	get_file(file);
+
 }
 
 static void sdcardfs_vm_close(struct vm_area_struct *vma)
 {
+#ifdef CONFIG_RTK_PLATFORM
+	struct file *file = (struct file *)vma->vm_rtk_private_data;
+#else
 	struct file *file = (struct file *)vma->vm_private_data;
+#endif /* CONFIG_RTK_PLATFORM */
 
 	fput(file);
 }
@@ -55,7 +71,12 @@ static int sdcardfs_page_mkwrite(struct vm_area_struct *vma,
 	struct file *file;
 	const struct vm_operations_struct *lower_vm_ops;
 
+#ifdef CONFIG_RTK_PLATFORM
+	file = (struct file *)vma->vm_rtk_private_data;
+#else
 	file = (struct file *)vma->vm_private_data;
+#endif /* CONFIG_RTK_PLATFORM */
+
 	lower_vm_ops = SDCARDFS_F(file)->lower_vm_ops;
 	BUG_ON(!lower_vm_ops);
 	if (!lower_vm_ops->page_mkwrite)

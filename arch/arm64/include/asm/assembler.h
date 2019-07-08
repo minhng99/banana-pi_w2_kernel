@@ -51,6 +51,20 @@
 	msr	daif, \flags
 	.endm
 
+#ifdef CONFIG_RTK_PLATFORM
+/*
+* Save/disable and restore interrupts.
+*/
+	.macro  save_and_disable_irqs, olddaif
+	mrs     \olddaif, daif
+	disable_irq
+	.endm
+
+	.macro  restore_irqs, olddaif
+	msr     daif, \olddaif
+	.endm
+#endif /* CONFIG_RTK_PLATFORM */
+
 /*
  * Enable and disable debug exceptions.
  */

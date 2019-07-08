@@ -83,7 +83,6 @@
 	ARM_SMCCC_CALL_VAL(ARM_SMCCC_FAST_CALL, ARM_SMCCC_SMC_32, \
 			   ARM_SMCCC_OWNER_TRUSTED_OS_END, \
 			   OPTEE_SMC_FUNCID_CALLS_REVISION)
-
 struct optee_smc_calls_revision_result {
 	unsigned long major;
 	unsigned long minor;

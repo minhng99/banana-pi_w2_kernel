@@ -41,6 +41,10 @@
 #include "ion_priv.h"
 #include "compat_ion.h"
 
+#if defined(CONFIG_ION_RTK)
+#include "../uapi/ion_rtk.h"
+#endif
+
 bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer)
 {
 	return (buffer->flags & ION_FLAG_CACHED) &&
@@ -402,6 +406,25 @@ static int ion_handle_add(struct ion_client *client, struct ion_handle *handle)
 	return 0;
 }
 
+#if defined(CONFIG_ION_RTK)
+struct ion_heap * ion_get_client_heap_by_mask(struct ion_client *client,  unsigned int heap_id_mask)
+{
+	struct ion_device *dev = client->dev;
+	struct ion_heap *heap = NULL;
+
+	down_read(&dev->lock);
+	plist_for_each_entry(heap, &dev->heaps, node) {
+		/* if the caller didn't specify this heap id */
+		if (!((1 << heap->id) & heap_id_mask))
+			continue;
+		break;
+	}
+	up_read(&dev->lock);
+	return heap;
+}
+EXPORT_SYMBOL(ion_get_client_heap_by_mask);
+#endif /* CONFIG_ION_RTK */
+
 struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 			     size_t align, unsigned int heap_id_mask,
 			     unsigned int flags)
@@ -484,6 +507,34 @@ void ion_free(struct ion_client *client, struct ion_handle *handle)
 	mutex_unlock(&client->lock);
 }
 EXPORT_SYMBOL(ion_free);
+
+#if defined(CONFIG_ION_RTK)
+int ion_phys(struct ion_client *client, struct ion_handle *handle,
+	     ion_phys_addr_t *addr, size_t *len)
+{
+	struct ion_buffer *buffer;
+	int ret;
+
+	mutex_lock(&client->lock);
+	if (!ion_handle_validate(client, handle)) {
+		mutex_unlock(&client->lock);
+		return -EINVAL;
+	}
+
+	buffer = handle->buffer;
+
+	if (!buffer->heap->ops->phys) {
+		pr_err("%s: ion_phys is not implemented by this heap (name=%s, type=%d).\n",
+			__func__, buffer->heap->name, buffer->heap->type);
+		mutex_unlock(&client->lock);
+		return -ENODEV;
+	}
+	mutex_unlock(&client->lock);
+	ret = buffer->heap->ops->phys(buffer->heap, buffer, addr, len);
+	return ret;
+}
+EXPORT_SYMBOL(ion_phys);
+#endif /* CONFIG_ION_RTK */
 
 static void *ion_buffer_kmap_get(struct ion_buffer *buffer)
 {
@@ -789,15 +840,41 @@ void ion_client_destroy(struct ion_client *client)
 	if (client->task)
 		put_task_struct(client->task);
 	rb_erase(&client->node, &dev->clients);
+#if 1 /* ATM-1809 : Fix deadlock at operate debugfs */
+	mutex_unlock(&debugfs_mutex);
+#endif
 	debugfs_remove_recursive(client->debug_root);
 	up_write(&dev->lock);
 
 	kfree(client->display_name);
 	kfree(client->name);
 	kfree(client);
+#if 0 /* ATM-1809 : Fix deadlock at operate debugfs */
 	mutex_unlock(&debugfs_mutex);
+#endif
 }
 EXPORT_SYMBOL(ion_client_destroy);
+
+#if defined(CONFIG_ION_RTK)
+struct sg_table *ion_sg_table(struct ion_client *client,
+	struct ion_handle *handle)
+{
+	struct ion_buffer *buffer;
+	struct sg_table *table;
+
+	mutex_lock(&client->lock);
+	if (!ion_handle_validate(client, handle)) {
+		pr_err("%s: invalid handle passed to map_dma.\n", __func__);
+		mutex_unlock(&client->lock);
+		return ERR_PTR(-EINVAL);
+	}
+	buffer = handle->buffer;
+	table = buffer->sg_table;
+	mutex_unlock(&client->lock);
+	return table;
+}
+EXPORT_SYMBOL(ion_sg_table);
+#endif /* CONFIG_ION_RTK */
 
 static void ion_buffer_sync_for_device(struct ion_buffer *buffer,
 				       struct device *dev,
@@ -883,6 +960,22 @@ static int ion_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	pfn = page_to_pfn(ion_buffer_page(buffer->pages[vmf->pgoff]));
 	ret = vm_insert_pfn(vma, (unsigned long)vmf->virtual_address, pfn);
 	mutex_unlock(&buffer->lock);
+#if 1
+	/*
+	 * Android CTS causes OOM if ion_vm_fault return "-EBUSY".
+	 * vm_insert_pfn >> insert_pfn >> -EBUSY
+	 */
+#ifdef CONFIG_ARCH_RTD139x
+	/*
+	 * low-end GPU not support GPU render script.
+	 * if using CPU to do that will cause OOM.
+	 */
+	if (ret == -EBUSY) {
+		printk(KERN_INFO "%s: -EBUSY\n", __func__);
+		return VM_FAULT_NOPAGE; // "VM_FAULT_RETRY" not work
+	}
+#endif /* CONFIG_ARCH_RTD139x */
+#endif
 	if (ret)
 		return VM_FAULT_ERROR;
 
@@ -918,12 +1011,20 @@ static void ion_vm_close(struct vm_area_struct *vma)
 	}
 	mutex_unlock(&buffer->lock);
 }
-
+#if defined(CONFIG_ION_RTK)
+const struct vm_operations_struct ion_vma_ops = {
+	.open = ion_vm_open,
+	.close = ion_vm_close,
+	.fault = ion_vm_fault,
+};
+EXPORT_SYMBOL(ion_vma_ops);
+#else
 static const struct vm_operations_struct ion_vma_ops = {
 	.open = ion_vm_open,
 	.close = ion_vm_close,
 	.fault = ion_vm_fault,
 };
+#endif /* CONFIG_ION_RTK */
 
 static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 {
@@ -945,6 +1046,18 @@ static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 		return 0;
 	}
 
+#if defined(CONFIG_ION_RTK)
+#if 0
+	if (buffer->heap->type == RTK_PHOENIX_ION_HEAP_TYPE_MEDIA ||
+		buffer->heap->type == RTK_PHOENIX_ION_HEAP_TYPE_AUDIO ||
+		buffer->heap->type == RTK_PHOENIX_ION_HEAP_TYPE_TILER)
+#else
+	if (buffer->flags & ION_FLAG_NONCACHED)
+#endif
+		vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	else
+#endif /* CONFIG_ION_RTK */
+
 	if (!(buffer->flags & ION_FLAG_CACHED))
 		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
@@ -959,6 +1072,19 @@ static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 
 	return ret;
 }
+
+#if defined(CONFIG_ION_RTK)
+int ion_mmap_by_handle(struct ion_handle *handle, struct vm_area_struct *vma)
+{
+	struct dma_buf dmabuf;
+	
+	if (handle == NULL)
+		return -1;
+	dmabuf.priv = handle->buffer;
+	return ion_mmap(&dmabuf, vma);
+}
+EXPORT_SYMBOL(ion_mmap_by_handle);
+#endif /* CONFIG_ION_RTK */
 
 static void ion_dma_buf_release(struct dma_buf *dmabuf)
 {
@@ -1130,6 +1256,54 @@ struct ion_handle *ion_import_dma_buf_fd(struct ion_client *client, int fd)
 	return handle;
 }
 EXPORT_SYMBOL(ion_import_dma_buf_fd);
+
+#if defined(CONFIG_ION_RTK)
+struct ion_handle *ion_import_dma_buf_point(struct ion_client *client, struct dma_buf *dmabuf)
+{
+	struct ion_buffer *buffer;
+	struct ion_handle *handle;
+	int ret;
+
+	if (IS_ERR(dmabuf))
+		return ERR_CAST(dmabuf);
+	/* if this memory came from ion */
+
+	if (dmabuf->ops != &dma_buf_ops) {
+		pr_err("%s: can not import dmabuf from another exporter\n",
+		       __func__);
+		dma_buf_put(dmabuf);
+		return ERR_PTR(-EINVAL);
+	}
+	buffer = dmabuf->priv;
+
+	mutex_lock(&client->lock);
+	/* if a handle exists for this buffer just take a reference to it */
+	handle = ion_handle_lookup(client, buffer);
+	if (!IS_ERR(handle)) {
+		ion_handle_get(handle);
+		mutex_unlock(&client->lock);
+		goto end;
+	}
+
+	handle = ion_handle_create(client, buffer);
+	if (IS_ERR(handle)) {
+		mutex_unlock(&client->lock);
+		goto end;
+	}
+
+	ret = ion_handle_add(client, handle);
+	mutex_unlock(&client->lock);
+	if (ret) {
+		ion_handle_put(handle);
+		handle = ERR_PTR(ret);
+	}
+
+end:
+	dma_buf_put(dmabuf);
+	return handle;
+}
+EXPORT_SYMBOL(ion_import_dma_buf_point);
+#endif /* CONFIG_ION_RTK */
 
 int ion_sync_for_device(struct ion_client *client, int fd)
 {

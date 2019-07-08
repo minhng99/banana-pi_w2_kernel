@@ -353,6 +353,16 @@ static inline bool tee_shm_is_registered(struct tee_shm *shm)
 }
 
 /**
+ * tee_shm_register_fd() - Register shared memory from file descriptor
+ *
+ * @ctx:	Context that allocates the shared memory
+ * @fd:		shared memory file descriptor reference.
+ *
+ * @returns a pointer to 'struct tee_shm'
+ */
+struct tee_shm *tee_shm_register_fd(struct tee_context *ctx, int fd);
+
+/**
  * tee_shm_free() - Free shared memory
  * @shm:	Handle to shared memory to free
  */
@@ -453,6 +463,25 @@ static inline int tee_shm_get_id(struct tee_shm *shm)
  */
 struct tee_shm *tee_shm_get_from_id(struct tee_context *ctx, int id);
 
+struct tee_context *tee_client_open_context(struct tee_context *start,
+			int (*match)(struct tee_ioctl_version_data *,
+				const void *),
+			const void *data, struct tee_ioctl_version_data *vers);
+
+void tee_client_close_context(struct tee_context *ctx);
+
+void tee_client_get_version(struct tee_context *ctx,
+			struct tee_ioctl_version_data *vers);
+
+int tee_client_open_session(struct tee_context *ctx,
+			struct tee_ioctl_open_session_arg *arg,
+			struct tee_param *param);
+
+int tee_client_close_session(struct tee_context *ctx, u32 session);
+
+int tee_client_invoke_func(struct tee_context *ctx,
+			struct tee_ioctl_invoke_arg *arg,
+			struct tee_param *param);
 static inline bool tee_param_is_memref(struct tee_param *param)
 {
 	switch (param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {

@@ -198,7 +198,11 @@ static int sdcardfs_mmap(struct file *file, struct vm_area_struct *vma)
 			pr_err("sdcardfs: lower mmap failed %d\n", err);
 			goto out;
 		}
+#ifdef CONFIG_RTK_PLATFORM
+		saved_vm_ops = vma->vm_rtk_ops; /* save: came from lower ->mmap */
+#else
 		saved_vm_ops = vma->vm_ops; /* save: came from lower ->mmap */
+#endif /*CONFIG_RTK_PLATFORM*/
 	}
 
 	/*
@@ -206,12 +210,21 @@ static int sdcardfs_mmap(struct file *file, struct vm_area_struct *vma)
 	 * don't want its test for ->readpage which returns -ENOEXEC.
 	 */
 	file_accessed(file);
+#ifdef CONFIG_RTK_PLATFORM
+	vma->vm_rtk_ops = &sdcardfs_vm_ops;
+#else
 	vma->vm_ops = &sdcardfs_vm_ops;
+#endif /*CONFIG_RTK_PLATFORM*/
 
 	file->f_mapping->a_ops = &sdcardfs_aops; /* set our aops */
 	if (!SDCARDFS_F(file)->lower_vm_ops) /* save for our ->fault */
 		SDCARDFS_F(file)->lower_vm_ops = saved_vm_ops;
+#ifdef CONFIG_RTK_PLATFORM
+	vma->vm_rtk_private_data = file;
+#else
 	vma->vm_private_data = file;
+#endif /*CONFIG_RTK_PLATFORM*/
+
 	get_file(lower_file);
 	vma->vm_file = lower_file;
 

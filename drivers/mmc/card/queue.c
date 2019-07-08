@@ -24,8 +24,11 @@
 #include "queue.h"
 #include "block.h"
 
+#if defined(CONFIG_ARCH_RTD16xx) || defined(CONFIG_ARCH_RTD139x) || defined(CONFIG_ARCH_RTD129x) || defined(CONFIG_ARCH_RTD119X)
+#define MMC_QUEUE_BOUNCESZ      0x200000
+#else
 #define MMC_QUEUE_BOUNCESZ	65536
-
+#endif
 /*
  * Prepare a MMC request. This just filters out odd stuff.
  */

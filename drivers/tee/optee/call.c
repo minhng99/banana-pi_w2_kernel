@@ -117,7 +117,6 @@ static struct optee_session *find_session(struct optee_context_data *ctxdata,
 	list_for_each_entry(sess, &ctxdata->sess_list, list_node)
 		if (sess->session_id == session_id)
 			return sess;
-
 	return NULL;
 }
 
@@ -174,7 +173,6 @@ u32 optee_do_call_with_arg(struct tee_context *ctx, phys_addr_t parg)
 	 * thread waiters wake up one.
 	 */
 	optee_cq_wait_final(&optee->call_queue, &w);
-
 	return ret;
 }
 
@@ -190,13 +188,11 @@ static struct tee_shm *get_msg_arg(struct tee_context *ctx, size_t num_params,
 			    TEE_SHM_MAPPED);
 	if (IS_ERR(shm))
 		return shm;
-
 	ma = tee_shm_get_va(shm, 0);
 	if (IS_ERR(ma)) {
 		rc = PTR_ERR(ma);
 		goto out;
 	}
-
 	rc = tee_shm_get_pa(shm, 0, msg_parg);
 	if (rc)
 		goto out;
@@ -209,7 +205,6 @@ out:
 		tee_shm_free(shm);
 		return ERR_PTR(rc);
 	}
-
 	return shm;
 }
 
@@ -332,6 +327,7 @@ int optee_invoke_func(struct tee_context *ctx, struct tee_ioctl_invoke_arg *arg,
 	if (!sess)
 		return -EINVAL;
 
+
 	shm = get_msg_arg(ctx, arg->num_params, &msg_arg, &msg_parg);
 	if (IS_ERR(shm))
 		return PTR_ERR(shm);
@@ -356,8 +352,10 @@ int optee_invoke_func(struct tee_context *ctx, struct tee_ioctl_invoke_arg *arg,
 
 	arg->ret = msg_arg->ret;
 	arg->ret_origin = msg_arg->ret_origin;
+
 out:
 	tee_shm_free(shm);
+
 	return rc;
 }
 
