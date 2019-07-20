@@ -1,0 +1,11 @@
+config COMMON_CLK_REALTEK
+	bool "Clock driver for realtek"
+	select RTK_MMIO 
+	select RESET_CONTROLLER
+
+config COMMON_CLK_REALTEK_DEBUG
+	bool "Clock debug"
+	select RTK_REGISTER_TRACKER
+	default y
+	help
+	  Add a simple register tracker to clock

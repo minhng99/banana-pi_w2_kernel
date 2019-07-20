@@ -187,6 +187,11 @@ config ARCH_REALTEK
 	  This enables support for the ARMv8 based Realtek chipsets,
 	  like the RTD1295.
 
+config ARCH_RTD129x
+	bool "Realtek RTD129x SoC Family"
+	help
+	  This enables support for Realtek RTD129x SoC Family
+
 config ARCH_RENESAS
 	bool "Renesas SoC Platforms"
 	select GPIOLIB
