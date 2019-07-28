@@ -65,6 +65,11 @@ struct dw8250_data {
 	struct reset_control	*rst;
 	struct uart_8250_dma	dma;
 
+#ifdef CONFIG_ARCH_RTD129x
+	u32			isr_st_mask;
+	void __iomem		*isr_reg;
+#endif
+
 	unsigned int		skip_autocfg:1;
 	unsigned int		uart_16550_compatible:1;
 };
@@ -277,12 +282,26 @@ static int dw8250_handle_irq(struct uart_port *p)
 		spin_unlock_irqrestore(&p->lock, flags);
 	}
 
-	if (serial8250_handle_irq(p, iir))
+	if (serial8250_handle_irq(p, iir)) {
+		#ifdef CONFIG_ARCH_RTD129x
+			if (d->isr_reg)
+				writel(d->isr_st_mask, d->isr_reg);
+		#endif
+
 		return 1;
+	}
 
 	if ((iir & UART_IIR_BUSY) == UART_IIR_BUSY) {
-		/* Clear the USR */
-		(void)p->serial_in(p, d->usr_reg);
+		#ifdef CONFIG_ARCH_RTD129x
+			/* Clear the USR and write the LCR again*/
+			(void)p->serial_in(p, DW_UART_USR);
+
+			if (d->isr_reg)
+				writel(d->isr_st_mask, d->isr_reg);
+		#else
+			/* Clear the USR */
+			(void)p->serial_in(p, d->usr_reg);
+		#endif
 
 		return 1;
 	}
@@ -498,6 +517,12 @@ static int dw8250_probe(struct platform_device *pdev)
 	struct uart_port *p = &uart.port;
 	struct device *dev = &pdev->dev;
 	struct dw8250_data *data;
+
+	#ifdef CONFIG_ARCH_RTD129x
+		struct resource *isr_regs = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+		struct device_node *node = pdev->dev.of_node;
+	#endif
+
 	int err;
 	u32 val;
 
@@ -591,6 +616,9 @@ static int dw8250_probe(struct platform_device *pdev)
 			dev_warn(dev, "could not enable optional baudclk: %d\n",
 				 err);
 		else
+			#ifdef CONFIG_ARCH_RTD129x
+				if (!uart.port.uartclk)
+			#endif
 			p->uartclk = clk_get_rate(data->clk);
 	}
 
@@ -620,6 +648,13 @@ static int dw8250_probe(struct platform_device *pdev)
 		goto err_pclk;
 	}
 	reset_control_deassert(data->rst);
+
+	#ifdef CONFIG_ARCH_RTD129x
+		if (!of_property_read_u32_index(node, "interrupts-st-mask", 0, &data->isr_st_mask))
+			data->isr_reg = devm_ioremap(&pdev->dev, isr_regs->start, resource_size(isr_regs));
+		else
+			data->isr_reg = 0;
+	#endif
 
 	dw8250_quirks(p, data);
 
