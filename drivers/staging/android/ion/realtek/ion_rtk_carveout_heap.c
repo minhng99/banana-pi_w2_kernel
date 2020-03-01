@@ -720,7 +720,7 @@ static unsigned long ion_rtk_carveout_heap_gen_pool_algo(unsigned long *map, uns
 	if (rtk_carveout_heap != NULL) {
 		switch (rtk_carveout_heap->algo_mode) {
 			case ALGO_FIRST_FIT:
-				return gen_pool_first_fit(map, size, start, nr, data, NULL);
+				return gen_pool_first_fit(map, size, start, nr, data, NULL, 0);
 			case ALGO_LAST_FIT:
 				return ion_rtk_carveout_heap_gen_pool_algo_last_fit(map, size, start, nr, data);
 			default:
@@ -732,7 +732,7 @@ static unsigned long ion_rtk_carveout_heap_gen_pool_algo(unsigned long *map, uns
 	if (rtk_carveout_heap != NULL)
 		pr_err( " algo_mode=0x%x", rtk_carveout_heap->algo_mode);
 	pr_err(	 " size=%ld start=%ld, nr=%d\n", size, start, nr);
-	return gen_pool_first_fit(map, size, start, nr, data, NULL);
+	return gen_pool_first_fit(map, size, start, nr, data, NULL, 0);
 
 }
 
